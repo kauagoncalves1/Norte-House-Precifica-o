@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-type MenuItem = { id: string; name: string; description: string | null; price: number; photo_url: string | null };
+type MenuItem = { id: string; name: string; description: string | null; ingredients: string | null; price: number; photo_url: string | null };
 type Sale = { id: string; item_name: string; category: string; unit_price: number; quantity: number; sold_at: string };
 
 const TABS = [
+  { id: "pricing", label: "Precificação" },
+  { id: "builder", label: "Simulador de pedido" },
   { id: "menu", label: "Cardápio" },
   { id: "admin", label: "Painel" },
   { id: "assistant", label: "Assistente IA" },
@@ -16,17 +18,60 @@ function fmt(n: number) {
   return "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Mantém só dígitos e formata como reais enquanto digita (ex: "2250" -> "22,50")
+function formatPriceInput(raw: string) {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  const cents = parseInt(digits, 10);
+  return (cents / 100).toFixed(2).replace(".", ",");
+}
+
 export default function Home() {
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("menu");
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("pricing");
   const [shopName, setShopName] = useState("Norte House Burger");
+
+  // ---- pricing calculator state (local, não salva no banco) ----
+  const [ingredients, setIngredients] = useState([
+    { name: "Pão brioche", qty: 1, unit: "un", cost: 1.2 },
+    { name: "Carne 150g", qty: 1, unit: "un", cost: 6.5 },
+    { name: "Queijo cheddar", qty: 2, unit: "fatia", cost: 0.8 },
+    { name: "Molho da casa", qty: 20, unit: "g", cost: 0.05 },
+  ]);
+  const [marginPct, setMarginPct] = useState(150);
+  const [fixedCost, setFixedCost] = useState(1.5);
+
+  // ---- order builder state (local) ----
+  const orderBases = [
+    { id: "classico", name: "Clássico", desc: "150g, queijo, alface, tomate.", price: 22 },
+    { id: "duplo", name: "Duplo carne", desc: "2x150g, queijo duplo.", price: 32 },
+    { id: "vegetariano", name: "Vegetariano", desc: "Hambúrguer de grão-de-bico.", price: 24 },
+  ];
+  const orderAddons = [
+    { id: "bacon", name: "Bacon extra", price: 5 },
+    { id: "cheddar", name: "Cheddar extra", price: 4 },
+    { id: "ovo", name: "Ovo frito", price: 3 },
+    { id: "onion", name: "Onion rings", price: 6 },
+    { id: "molho", name: "Molho especial", price: 2 },
+  ];
+  const orderSides = [
+    { id: "batata", name: "Batata frita", price: 10 },
+    { id: "refri", name: "Refrigerante lata", price: 6 },
+    { id: "suco", name: "Suco natural", price: 8 },
+  ];
+  const [orderBase, setOrderBase] = useState("classico");
+  const [orderSelectedAddons, setOrderSelectedAddons] = useState<Set<string>>(new Set());
+  const [orderSelectedSides, setOrderSelectedSides] = useState<Set<string>>(new Set());
 
   // ---- menu state ----
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [newIngredients, setNewIngredients] = useState("");
   const [newPhotoFile, setNewPhotoFile] = useState<File | null>(null);
   const [newPhotoPreview, setNewPhotoPreview] = useState<string | null>(null);
+  const [savingItem, setSavingItem] = useState(false);
+  const [menuError, setMenuError] = useState<string | null>(null);
 
   // ---- sales state ----
   const [sales, setSales] = useState<Sale[]>([]);
@@ -37,6 +82,13 @@ export default function Home() {
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+
+  const chatSuggestions = [
+    "Essa margem tá boa para esse item?",
+    "Sugira um nome criativo para um novo hambúrguer",
+    "Escreva uma descrição de cardápio pro item atual",
+    "Como precificar um combo com batata e bebida?",
+  ];
 
   useEffect(() => {
     loadMenu();
@@ -60,34 +112,52 @@ export default function Home() {
   }
 
   async function handleAddMenuItem() {
-    if (!newName.trim() || !newPrice) {
-      alert("Preencha ao menos o nome e o preço do item.");
+    setMenuError(null);
+    const priceNum = parseFloat(newPrice.replace(",", "."));
+    if (!newName.trim() || !newPrice || isNaN(priceNum)) {
+      setMenuError("Preencha ao menos o nome e o preço do item.");
       return;
     }
-    let photo_url: string | null = null;
+    setSavingItem(true);
+    try {
+      let photo_url: string | null = null;
 
-    if (newPhotoFile) {
-      const filePath = `${Date.now()}-${newPhotoFile.name}`;
-      const { error: uploadError } = await supabase.storage.from("menu-photos").upload(filePath, newPhotoFile);
-      if (!uploadError) {
-        const { data: publicUrl } = supabase.storage.from("menu-photos").getPublicUrl(filePath);
-        photo_url = publicUrl.publicUrl;
+      if (newPhotoFile) {
+        const filePath = `${Date.now()}-${newPhotoFile.name}`;
+        const { error: uploadError } = await supabase.storage.from("menu-photos").upload(filePath, newPhotoFile);
+        if (uploadError) {
+          setMenuError(`Falha ao enviar a foto: ${uploadError.message}. Verifique se o bucket "menu-photos" existe e é público.`);
+        } else {
+          const { data: publicUrl } = supabase.storage.from("menu-photos").getPublicUrl(filePath);
+          photo_url = publicUrl.publicUrl;
+        }
       }
+
+      const { error: insertError } = await supabase.from("menu_items").insert({
+        name: newName.trim(),
+        price: priceNum,
+        description: newDesc.trim() || null,
+        ingredients: newIngredients.trim() || null,
+        photo_url,
+      });
+
+      if (insertError) {
+        setMenuError(`Falha ao salvar o item: ${insertError.message}`);
+        return;
+      }
+
+      setNewName("");
+      setNewPrice("");
+      setNewDesc("");
+      setNewIngredients("");
+      setNewPhotoFile(null);
+      setNewPhotoPreview(null);
+      loadMenu();
+    } catch (err: any) {
+      setMenuError(`Erro inesperado: ${err.message || err}`);
+    } finally {
+      setSavingItem(false);
     }
-
-    await supabase.from("menu_items").insert({
-      name: newName.trim(),
-      price: parseFloat(newPrice),
-      description: newDesc.trim() || null,
-      photo_url,
-    });
-
-    setNewName("");
-    setNewPrice("");
-    setNewDesc("");
-    setNewPhotoFile(null);
-    setNewPhotoPreview(null);
-    loadMenu();
   }
 
   async function handleDeleteMenuItem(id: string) {
@@ -112,8 +182,8 @@ export default function Home() {
     loadSales();
   }
 
-  async function sendChatMessage() {
-    const text = chatInput.trim();
+  async function sendChatMessage(overrideText?: string) {
+    const text = (overrideText ?? chatInput).trim();
     if (!text) return;
     const newHistory = [...chatHistory, { role: "user", content: text }];
     setChatHistory(newHistory);
@@ -146,6 +216,31 @@ export default function Home() {
   sales.forEach((l) => { tally[l.item_name] = (tally[l.item_name] || 0) + l.quantity; });
   const ranked = Object.entries(tally).sort((a, b) => b[1] - a[1]);
 
+  // pricing calc
+  const ingredientsCost = ingredients.reduce((s, i) => s + i.qty * i.cost, 0);
+  const totalItemCost = ingredientsCost + fixedCost;
+  const suggestedPrice = totalItemCost * (1 + marginPct / 100);
+
+  function updateIngredient(i: number, field: string, value: string) {
+    setIngredients((prev) => prev.map((ing, idx) => idx === i ? { ...ing, [field]: field === "qty" || field === "cost" ? parseFloat(value) || 0 : value } : ing));
+  }
+  function removeIngredient(i: number) {
+    setIngredients((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // order builder calc
+  const chosenBase = orderBases.find((b) => b.id === orderBase)!;
+  const chosenAddons = orderAddons.filter((a) => orderSelectedAddons.has(a.id));
+  const chosenSides = orderSides.filter((s) => orderSelectedSides.has(s.id));
+  const orderTotal = chosenBase.price + chosenAddons.reduce((s, a) => s + a.price, 0) + chosenSides.reduce((s, i) => s + i.price, 0);
+  function toggleSet(setFn: (fn: (prev: Set<string>) => Set<string>) => void, id: string) {
+    setFn((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
   return (
     <div>
       <div className="topbar">
@@ -169,6 +264,98 @@ export default function Home() {
             </button>
           ))}
         </div>
+
+        {tab === "pricing" && (
+          <div className="panel">
+            <div className="section-head"><h2>Ingredientes do item</h2><div className="rule" /></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 90px 32px", gap: 10, fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1, padding: "0 0 10px", borderBottom: "1px solid var(--ink-dim)" }}>
+              <span>Ingrediente</span><span>Qtd</span><span>Unid.</span><span>Custo (R$)</span><span></span>
+            </div>
+            {ingredients.map((ing, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 90px 32px", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
+                <input value={ing.name} onChange={(e) => updateIngredient(i, "name", e.target.value)} style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)", padding: 8, borderRadius: 3 }} />
+                <input type="number" value={ing.qty} step="0.1" onChange={(e) => updateIngredient(i, "qty", e.target.value)} style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)", padding: 8, borderRadius: 3 }} />
+                <input value={ing.unit} onChange={(e) => updateIngredient(i, "unit", e.target.value)} style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)", padding: 8, borderRadius: 3 }} />
+                <input type="number" value={ing.cost} step="0.01" onChange={(e) => updateIngredient(i, "cost", e.target.value)} style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)", padding: 8, borderRadius: 3 }} />
+                <button onClick={() => removeIngredient(i)} style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", fontSize: 18 }}>×</button>
+              </div>
+            ))}
+            <button onClick={() => setIngredients((prev) => [...prev, { name: "Novo ingrediente", qty: 1, unit: "un", cost: 0 }])}
+              style={{ marginTop: 14, background: "none", border: "1px dashed var(--ink-dim)", color: "var(--ink-dim)", padding: "10px 16px", fontSize: 13, cursor: "pointer", borderRadius: 3 }}>
+              + adicionar ingrediente
+            </button>
+
+            <div className="section-head"><h2>Margem & custos fixos</h2><div className="rule" /></div>
+            <div style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Margem de lucro desejada</label>
+                <input type="range" min={20} max={300} step={5} value={marginPct} onChange={(e) => setMarginPct(parseInt(e.target.value))} style={{ width: "100%" }} />
+                <div style={{ fontFamily: "DM Mono, monospace", fontSize: 20, marginTop: 10, color: "var(--mustard)" }}>{marginPct}%</div>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Custo fixo por unidade (embalagem, gás)</label>
+                <input type="range" min={0} max={10} step={0.1} value={fixedCost} onChange={(e) => setFixedCost(parseFloat(e.target.value))} style={{ width: "100%" }} />
+                <div style={{ fontFamily: "DM Mono, monospace", fontSize: 20, marginTop: 10, color: "var(--mustard)" }}>{fmt(fixedCost)}</div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 24, background: "linear-gradient(135deg,#3a2e1f,var(--charcoal-2))", border: "1px solid var(--mustard)", padding: 26, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 6 }}>Custo total do item</div>
+                <div style={{ fontFamily: "DM Mono, monospace", fontWeight: 500, fontSize: 32, color: "var(--mustard)" }}>{fmt(totalItemCost)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 6 }}>Preço de venda sugerido</div>
+                <div style={{ fontFamily: "DM Mono, monospace", fontWeight: 500, fontSize: 32, color: "var(--mustard)" }}>{fmt(suggestedPrice)}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 8 }}>lucro de {fmt(suggestedPrice - totalItemCost)} por unidade</div>
+              </div>
+            </div>
+            <div className="footer-note"><b>Dica —</b> depois de calcular, use esse valor no campo de preço ao cadastrar o item na aba Cardápio.</div>
+          </div>
+        )}
+
+        {tab === "builder" && (
+          <div className="panel">
+            <div className="section-head"><h2>Base do pedido</h2><div className="rule" /></div>
+            <div className="cards">
+              {orderBases.map((b) => (
+                <div key={b.id} className={`card ${orderBase === b.id ? "active" : ""}`} onClick={() => setOrderBase(b.id)}>
+                  <div className="top-row"><span className="name">{b.name}</span><span className="dot" /></div>
+                  <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>{b.desc}</div>
+                  <span className="price">+ {fmt(b.price)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="section-head"><h2>Adicionais</h2><div className="rule" /></div>
+            <div className="cards">
+              {orderAddons.map((a) => (
+                <div key={a.id} className={`card ${orderSelectedAddons.has(a.id) ? "active" : ""}`} onClick={() => toggleSet(setOrderSelectedAddons, a.id)}>
+                  <div className="top-row"><span className="name">{a.name}</span><span className="dot" /></div>
+                  <span className="price">+ {fmt(a.price)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="section-head"><h2>Bebida & acompanhamento</h2><div className="rule" /></div>
+            <div className="cards">
+              {orderSides.map((s) => (
+                <div key={s.id} className={`card ${orderSelectedSides.has(s.id) ? "active" : ""}`} onClick={() => toggleSet(setOrderSelectedSides, s.id)}>
+                  <div className="top-row"><span className="name">{s.name}</span><span className="dot" /></div>
+                  <span className="price">+ {fmt(s.price)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="ledger">
+              <div className="ledger-head"><span>Composição do pedido</span><span>{1 + chosenAddons.length + chosenSides.length} itens</span></div>
+              <div className="line"><span>{chosenBase.name}</span><span className="l-price">{fmt(chosenBase.price)}</span></div>
+              {chosenAddons.map((a) => <div key={a.id} className="line"><span>{a.name}</span><span className="l-price">{fmt(a.price)}</span></div>)}
+              {chosenSides.map((s) => <div key={s.id} className="line"><span>{s.name}</span><span className="l-price">{fmt(s.price)}</span></div>)}
+              <div className="total-bar"><span className="label">Total do pedido</span><span className="amount">{fmt(orderTotal)}</span></div>
+            </div>
+          </div>
+        )}
 
         {tab === "menu" && (
           <div className="panel">
@@ -196,13 +383,25 @@ export default function Home() {
                 <input placeholder="Nome do item" value={newName} onChange={(e) => setNewName(e.target.value)}
                   style={{ background: "var(--charcoal-2)", border: "1px solid var(--line)", color: "var(--ink)", padding: 10, borderRadius: 3 }} />
                 <div style={{ display: "flex", gap: 14 }}>
-                  <input placeholder="Preço (R$)" type="number" step="0.01" value={newPrice} onChange={(e) => setNewPrice(e.target.value)}
-                    style={{ flex: 1, background: "var(--charcoal-2)", border: "1px solid var(--line)", color: "var(--ink)", padding: 10, borderRadius: 3 }} />
+                  <div style={{ flex: 1, position: "relative" }}>
+                    <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-dim)", fontSize: 14, pointerEvents: "none" }}>R$</span>
+                    <input
+                      placeholder="0,00"
+                      inputMode="numeric"
+                      value={newPrice}
+                      onChange={(e) => setNewPrice(formatPriceInput(e.target.value))}
+                      style={{ width: "100%", background: "var(--charcoal-2)", border: "1px solid var(--line)", color: "var(--ink)", padding: "10px 10px 10px 32px", borderRadius: 3 }}
+                    />
+                  </div>
                   <input placeholder="Descrição curta" value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
                     style={{ flex: 2, background: "var(--charcoal-2)", border: "1px solid var(--line)", color: "var(--ink)", padding: 10, borderRadius: 3 }} />
                 </div>
-                <button onClick={handleAddMenuItem} style={{ alignSelf: "flex-start", background: "var(--mustard)", border: "none", color: "var(--charcoal)", fontWeight: 600, padding: "10px 22px", borderRadius: 3, cursor: "pointer" }}>
-                  Adicionar ao cardápio
+                <textarea placeholder="Ingredientes (ex: pão brioche, 150g carne, cheddar, molho da casa)" value={newIngredients} onChange={(e) => setNewIngredients(e.target.value)}
+                  rows={2}
+                  style={{ background: "var(--charcoal-2)", border: "1px solid var(--line)", color: "var(--ink)", padding: 10, borderRadius: 3, resize: "vertical" }} />
+                {menuError && <div style={{ color: "var(--burnt)", fontSize: 13 }}>{menuError}</div>}
+                <button onClick={handleAddMenuItem} disabled={savingItem} style={{ alignSelf: "flex-start", background: "var(--mustard)", border: "none", color: "var(--charcoal)", fontWeight: 600, padding: "10px 22px", borderRadius: 3, cursor: savingItem ? "default" : "pointer", opacity: savingItem ? 0.6 : 1 }}>
+                  {savingItem ? "Salvando..." : "Adicionar ao cardápio"}
                 </button>
               </div>
             </div>
@@ -220,6 +419,7 @@ export default function Home() {
                       <span style={{ fontFamily: "DM Mono, monospace", color: "var(--mustard)" }}>{fmt(item.price)}</span>
                     </div>
                     {item.description && <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 6 }}>{item.description}</div>}
+                    {item.ingredients && <div style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, borderTop: "1px solid var(--line)", paddingTop: 8, lineHeight: 1.5 }}>{item.ingredients}</div>}
                   </div>
                   <button onClick={() => handleDeleteMenuItem(item.id)} style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", border: "none", color: "var(--ink)", width: 24, height: 24, borderRadius: "50%", cursor: "pointer" }}>×</button>
                 </div>
@@ -295,15 +495,27 @@ export default function Home() {
               ))}
               {chatLoading && <div style={{ color: "var(--ink-dim)", fontSize: 13 }}>Pensando...</div>}
             </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              {chatSuggestions.map((s) => (
+                <button key={s} onClick={() => sendChatMessage(s)}
+                  style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink-dim)", fontSize: 12, padding: "8px 12px", borderRadius: 20, cursor: "pointer" }}>
+                  {s}
+                </button>
+              ))}
+            </div>
             <div style={{ display: "flex", gap: 10 }}>
               <input value={chatInput} onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendChatMessage()}
                 placeholder="Ex: essa margem tá boa pro clássico?"
                 style={{ flex: 1, background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)", padding: 12, borderRadius: 3 }} />
-              <button onClick={sendChatMessage} style={{ background: "var(--mustard)", border: "none", color: "var(--charcoal)", fontWeight: 600, padding: "0 22px", borderRadius: 3, cursor: "pointer" }}>Enviar</button>
+              <button onClick={() => sendChatMessage()} style={{ background: "var(--mustard)", border: "none", color: "var(--charcoal)", fontWeight: 600, padding: "0 22px", borderRadius: 3, cursor: "pointer" }}>Enviar</button>
             </div>
           </div>
         )}
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--line)", marginTop: 60, padding: "24px 24px", textAlign: "center", fontSize: 12, color: "var(--ink-dim)" }}>
+        {shopName} — painel de gestão interno. Desenvolvido por Kauã Gonçalves.
       </div>
     </div>
   );
