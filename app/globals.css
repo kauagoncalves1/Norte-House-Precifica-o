@@ -78,3 +78,25 @@ input[type=number]{ -moz-appearance:textfield; }
   display:flex; align-items:center; justify-content:center; padding:0;
 }
 .remove-btn:hover{ background:var(--burnt); border-color:var(--burnt); }
+
+/* ---------- responsivo (celular) ---------- */
+@media (max-width: 640px){
+  .wrap{ padding:0 16px; }
+  .topbar{ padding:16px; flex-wrap:wrap; gap:8px; }
+  .hero{ padding:36px 0 24px; }
+  .tabs{ gap:4px; overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; }
+  .tab{ padding:10px 12px; font-size:13px; white-space:nowrap; }
+  .section-head{ margin-top:26px; }
+
+  .menu-form-grid{ grid-template-columns:1fr !important; }
+  .menu-form-grid > div:first-child{ display:flex; justify-content:center; }
+  .price-desc-row{ flex-direction:column !important; }
+  .price-controls-grid{ grid-template-columns:1fr !important; }
+  .charts-grid{ grid-template-columns:1fr !important; }
+  .stat-cards-grid{ grid-template-columns:repeat(2, 1fr) !important; }
+  .perf-table-row{ min-width:560px; }
+  .perf-table-scroll{ overflow-x:auto; }
+  .ingredient-row-grid{ min-width:420px; }
+  .sale-form-row{ flex-direction:column; align-items:stretch !important; }
+  .sale-form-row select, .sale-form-row input, .sale-form-row button{ width:100% !important; }
+}

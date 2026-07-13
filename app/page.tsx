@@ -46,7 +46,7 @@ export default function Home() {
 
   // ---- order builder: base vem do cardápio real (menuItems), adicionais/bebidas vêm da tabela "extras" ----
   const [extras, setExtras] = useState<Extra[]>([]);
-  const [orderBaseId, setOrderBaseId] = useState<string>("");
+  const [orderBaseQtys, setOrderBaseQtys] = useState<Record<string, number>>({});
   const [orderSelectedAddons, setOrderSelectedAddons] = useState<Set<string>>(new Set());
   const [orderSelectedSides, setOrderSelectedSides] = useState<Set<string>>(new Set());
 
@@ -314,6 +314,14 @@ export default function Home() {
     return { dia: dayKey, faturamento: dayTotal };
   });
 
+  // top 5 itens por faturamento (não só por quantidade), somando hambúrguer + bebida
+  const revenueByItem: Record<string, number> = {};
+  sales.forEach((s) => { revenueByItem[s.item_name] = (revenueByItem[s.item_name] || 0) + s.unit_price * s.quantity; });
+  const topItemsByRevenue = Object.entries(revenueByItem)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, total]) => ({ nome: name.length > 14 ? name.slice(0, 14) + "…" : name, total }));
+
   // divisão hambúrguer x bebida/acompanhamento
   const splitData = [
     { name: "Hambúrgueres", value: revenue },
@@ -353,10 +361,33 @@ export default function Home() {
   // order builder calc — base vem do cardápio real, adicionais/bebidas da tabela extras
   const orderAddonsList = extras.filter((e) => e.category === "addon");
   const orderSidesList = extras.filter((e) => e.category === "drink");
-  const chosenBase = menuItems.find((m) => m.id === orderBaseId) || menuItems[0];
+  const chosenBases = menuItems
+    .filter((m) => (orderBaseQtys[m.id] || 0) > 0)
+    .map((m) => ({ ...m, qty: orderBaseQtys[m.id] }));
   const chosenAddons = orderAddonsList.filter((a) => orderSelectedAddons.has(a.id));
   const chosenSides = orderSidesList.filter((s) => orderSelectedSides.has(s.id));
-  const orderTotal = (chosenBase?.price || 0) + chosenAddons.reduce((s, a) => s + a.price, 0) + chosenSides.reduce((s, i) => s + i.price, 0);
+  const orderTotal =
+    chosenBases.reduce((s, b) => s + b.price * b.qty, 0) +
+    chosenAddons.reduce((s, a) => s + a.price, 0) +
+    chosenSides.reduce((s, i) => s + i.price, 0);
+  const orderItemCount = chosenBases.reduce((s, b) => s + b.qty, 0) + chosenAddons.length + chosenSides.length;
+
+  function setBaseQty(id: string, qty: number) {
+    setOrderBaseQtys((prev) => {
+      const next = { ...prev };
+      if (qty <= 0) delete next[id];
+      else next[id] = qty;
+      return next;
+    });
+  }
+  function toggleBase(id: string) {
+    setOrderBaseQtys((prev) => {
+      const next = { ...prev };
+      if (next[id]) delete next[id];
+      else next[id] = 1;
+      return next;
+    });
+  }
   function toggleSet(setFn: (fn: (prev: Set<string>) => Set<string>) => void, id: string) {
     setFn((prev) => {
       const next = new Set(prev);
@@ -392,11 +423,12 @@ export default function Home() {
         {tab === "pricing" && (
           <div className="panel">
             <div className="section-head"><h2>Ingredientes do item</h2><div className="rule" /></div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 90px 32px", gap: 10, fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1, padding: "0 0 10px", borderBottom: "1px solid var(--ink-dim)" }}>
+            <div className="ingredient-scroll" style={{ overflowX: "auto" }}>
+            <div className="ingredient-row-grid" style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 90px 32px", gap: 10, fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1, padding: "0 0 10px", borderBottom: "1px solid var(--ink-dim)" }}>
               <span>Ingrediente</span><span>Qtd</span><span>Unid.</span><span>Custo (R$)</span><span></span>
             </div>
             {ingredients.map((ing, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 90px 32px", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
+              <div key={i} className="ingredient-row-grid" style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 90px 32px", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
                 <input value={ing.name} onChange={(e) => updateIngredient(i, "name", e.target.value)} style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)", padding: 8, borderRadius: 3 }} />
                 <input type="number" value={ing.qty === 0 ? "" : ing.qty} step="0.1" onChange={(e) => updateIngredient(i, "qty", e.target.value)} style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)", padding: 8, borderRadius: 3 }} />
                 <select value={ing.unit} onChange={(e) => updateIngredient(i, "unit", e.target.value)} style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)", padding: 8, borderRadius: 3 }}>
@@ -406,13 +438,14 @@ export default function Home() {
                 <button onClick={() => removeIngredient(i)} style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", fontSize: 18 }}>×</button>
               </div>
             ))}
+            </div>
             <button onClick={() => setIngredients((prev) => [...prev, { name: "Novo ingrediente", qty: 1, unit: "un", cost: 0 }])}
               style={{ marginTop: 14, background: "none", border: "1px dashed var(--ink-dim)", color: "var(--ink-dim)", padding: "10px 16px", fontSize: 13, cursor: "pointer", borderRadius: 3 }}>
               + adicionar ingrediente
             </button>
 
             <div className="section-head"><h2>Margem & custos fixos</h2><div className="rule" /></div>
-            <div style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+            <div className="price-controls-grid" style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
               <div>
                 <label style={{ display: "block", fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Margem de lucro desejada</label>
                 <input type="range" min={20} max={300} step={5} value={marginPct} onChange={(e) => setMarginPct(parseInt(e.target.value))} style={{ width: "100%" }} />
@@ -444,13 +477,27 @@ export default function Home() {
           <div className="panel">
             <div className="section-head"><h2>Base do pedido (itens do seu cardápio)</h2><div className="rule" /></div>
             <div className="cards">
-              {menuItems.map((b) => (
-                <div key={b.id} className={`card ${orderBaseId === b.id ? "active" : ""}`} onClick={() => setOrderBaseId(b.id)}>
-                  <div className="top-row"><span className="name">{b.name}</span><span className="dot" /></div>
-                  {b.description && <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>{b.description}</div>}
-                  <span className="price">{fmt(b.price)}</span>
-                </div>
-              ))}
+              {menuItems.map((b) => {
+                const qty = orderBaseQtys[b.id] || 0;
+                return (
+                  <div key={b.id} className={`card ${qty > 0 ? "active" : ""}`} style={{ cursor: "default" }}>
+                    <div onClick={() => toggleBase(b.id)} style={{ cursor: "pointer" }}>
+                      <div className="top-row"><span className="name">{b.name}</span><span className="dot" /></div>
+                      {b.description && <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>{b.description}</div>}
+                      <span className="price">{fmt(b.price)}</span>
+                    </div>
+                    {qty > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+                        <button onClick={() => setBaseQty(b.id, qty - 1)}
+                          style={{ width: 26, height: 26, background: "var(--charcoal-2)", border: "1px solid var(--line)", color: "var(--ink)", borderRadius: 4, cursor: "pointer" }}>−</button>
+                        <span style={{ fontFamily: "DM Mono, monospace", fontSize: 14, minWidth: 20, textAlign: "center" }}>{qty}</span>
+                        <button onClick={() => setBaseQty(b.id, qty + 1)}
+                          style={{ width: 26, height: 26, background: "var(--charcoal-2)", border: "1px solid var(--line)", color: "var(--ink)", borderRadius: 4, cursor: "pointer" }}>+</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             {menuItems.length === 0 && <p style={{ fontSize: 13, color: "var(--ink-dim)", fontStyle: "italic" }}>Cadastre itens na aba Cardápio primeiro.</p>}
 
@@ -495,10 +542,10 @@ export default function Home() {
             </div>
             {orderSidesList.length === 0 && <p style={{ fontSize: 13, color: "var(--ink-dim)", fontStyle: "italic" }}>Nenhuma bebida/acompanhamento cadastrado ainda.</p>}
 
-            {chosenBase && (
+            {chosenBases.length > 0 && (
               <div className="ledger">
-                <div className="ledger-head"><span>Composição do pedido</span><span>{1 + chosenAddons.length + chosenSides.length} itens</span></div>
-                <div className="line"><span>{chosenBase.name}</span><span className="l-price">{fmt(chosenBase.price)}</span></div>
+                <div className="ledger-head"><span>Composição do pedido</span><span>{orderItemCount} itens</span></div>
+                {chosenBases.map((b) => <div key={b.id} className="line"><span>{b.qty}x {b.name}</span><span className="l-price">{fmt(b.price * b.qty)}</span></div>)}
                 {chosenAddons.map((a) => <div key={a.id} className="line"><span>{a.name}</span><span className="l-price">{fmt(a.price)}</span></div>)}
                 {chosenSides.map((s) => <div key={s.id} className="line"><span>{s.name}</span><span className="l-price">{fmt(s.price)}</span></div>)}
                 <div className="total-bar"><span className="label">Total do pedido</span><span className="amount">{fmt(orderTotal)}</span></div>
@@ -510,7 +557,7 @@ export default function Home() {
         {tab === "menu" && (
           <div className="panel">
             <div className="section-head"><h2>Novo item do cardápio</h2><div className="rule" /></div>
-            <div style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 22, display: "grid", gridTemplateColumns: "140px 1fr", gap: 20 }}>
+            <div className="menu-form-grid" style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 22, display: "grid", gridTemplateColumns: "140px 1fr", gap: 20 }}>
               <div>
                 <label style={{ display: "block", fontSize: 11, color: "var(--ink-dim)", marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>Foto</label>
                 <label style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 140, height: 140, border: "1px dashed var(--ink-dim)", borderRadius: 4, cursor: "pointer", overflow: "hidden", background: "var(--charcoal-2)" }}>
@@ -532,7 +579,7 @@ export default function Home() {
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <input placeholder="Nome do item" value={newName} onChange={(e) => setNewName(e.target.value)}
                   style={{ background: "var(--charcoal-2)", border: "1px solid var(--line)", color: "var(--ink)", padding: 10, borderRadius: 3 }} />
-                <div style={{ display: "flex", gap: 14 }}>
+                <div className="price-desc-row" style={{ display: "flex", gap: 14 }}>
                   <div style={{ flex: 1, position: "relative" }}>
                     <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-dim)", fontSize: 14, pointerEvents: "none" }}>R$</span>
                     <input
@@ -598,14 +645,14 @@ export default function Home() {
         {tab === "admin" && (
           <div className="panel">
             <div className="section-head"><h2>Análises</h2><div className="rule" /></div>
-            <div className="cards" style={{ marginBottom: 20 }}>
+            <div className="cards stat-cards-grid" style={{ marginBottom: 20 }}>
               <div className="stat-card"><div className="stat-label">Faturamento total</div><div className="stat-value">{fmt(totalRevenue)}</div></div>
               <div className="stat-card"><div className="stat-label">Ticket médio</div><div className="stat-value">{fmt(avgTicket)}</div></div>
               <div className="stat-card"><div className="stat-label">Total de pedidos</div><div className="stat-value">{totalOrders}</div></div>
               <div className="stat-card"><div className="stat-label">Margem (hambúrgueres)</div><div className="stat-value">{profitMarginPct.toFixed(0)}%</div></div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 20 }}>
+            <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 20 }}>
               <div className="stat-card" style={{ padding: 20 }}>
                 <div className="stat-label" style={{ marginBottom: 14 }}>Faturamento — últimos 7 dias</div>
                 <ResponsiveContainer width="100%" height={220}>
@@ -644,13 +691,13 @@ export default function Home() {
             </div>
 
             <div className="section-head"><h2>Custo e lucro por item do cardápio</h2><div className="rule" /></div>
-            <div className="ledger" style={{ marginBottom: 20, overflowX: "auto" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.7fr 1fr 1fr 1fr 0.8fr", gap: 10, padding: "12px 22px", fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid var(--line)" }}>
+            <div className="ledger perf-table-scroll" style={{ marginBottom: 20, overflowX: "auto" }}>
+              <div className="perf-table-row" style={{ display: "grid", gridTemplateColumns: "1.6fr 0.7fr 1fr 1fr 1fr 0.8fr", gap: 10, padding: "12px 22px", fontSize: 11, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid var(--line)" }}>
                 <span>Item</span><span>Qtd.</span><span>Faturamento</span><span>Custo total</span><span>Lucro</span><span>Margem</span>
               </div>
               {itemPerformance.length === 0 && <div className="line empty">Nenhum item cadastrado ainda.</div>}
               {itemPerformance.map((p) => (
-                <div key={p.name} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.7fr 1fr 1fr 1fr 0.8fr", gap: 10, padding: "12px 22px", fontSize: 13, borderBottom: "1px solid var(--line)" }}>
+                <div key={p.name} className="perf-table-row" style={{ display: "grid", gridTemplateColumns: "1.6fr 0.7fr 1fr 1fr 1fr 0.8fr", gap: 10, padding: "12px 22px", fontSize: 13, borderBottom: "1px solid var(--line)" }}>
                   <span>{p.name}</span>
                   <span style={{ color: "var(--ink-dim)" }}>{p.qty}</span>
                   <span style={{ fontFamily: "DM Mono, monospace" }}>{fmt(p.revenue)}</span>
@@ -676,7 +723,7 @@ export default function Home() {
 
             <div className="section-head"><h2>Registrar venda — hambúrguer</h2><div className="rule" /></div>
 
-            <div style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 20, display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div className="sale-form-row" style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 20, display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
               <select value={saleItemId} onChange={(e) => setSaleItemId(e.target.value)} style={{ flex: 2, minWidth: 180 }}>
                 <option value="">selecione um item</option>
                 {menuItems.map((m) => <option key={m.id} value={m.id}>{m.name} — {fmt(m.price)}</option>)}
@@ -687,7 +734,7 @@ export default function Home() {
             </div>
 
             <div className="section-head"><h2>Registrar venda — bebida/acompanhamento</h2><div className="rule" /></div>
-            <div style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 20, display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div className="sale-form-row" style={{ background: "var(--card)", border: "1px solid var(--line)", padding: 20, display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
               <select value={extraSaleId} onChange={(e) => setExtraSaleId(e.target.value)} style={{ flex: 2, minWidth: 180 }}>
                 <option value="">selecione um item</option>
                 {extras.map((ex) => <option key={ex.id} value={ex.id}>{ex.name} — {fmt(ex.price)} ({ex.category === "drink" ? "bebida" : "adicional"})</option>)}
