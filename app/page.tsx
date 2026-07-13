@@ -314,14 +314,6 @@ export default function Home() {
     return { dia: dayKey, faturamento: dayTotal };
   });
 
-  // top 5 itens por faturamento (não só por quantidade), somando hambúrguer + bebida
-  const revenueByItem: Record<string, number> = {};
-  sales.forEach((s) => { revenueByItem[s.item_name] = (revenueByItem[s.item_name] || 0) + s.unit_price * s.quantity; });
-  const topItemsByRevenue = Object.entries(revenueByItem)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([name, total]) => ({ nome: name.length > 14 ? name.slice(0, 14) + "…" : name, total }));
-
   // divisão hambúrguer x bebida/acompanhamento
   const splitData = [
     { name: "Hambúrgueres", value: revenue },
@@ -649,19 +641,6 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-            </div>
-
-            <div className="stat-card" style={{ padding: 20, marginBottom: 20 }}>
-              <div className="stat-label" style={{ marginBottom: 14 }}>Top 5 itens por faturamento</div>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={topItemsByRevenue}>
-                  <CartesianGrid stroke="var(--line)" strokeDasharray="3 3" />
-                  <XAxis dataKey="nome" tick={{ fill: "var(--ink-dim)", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "var(--ink-dim)", fontSize: 11 }} width={50} />
-                  <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ background: "var(--charcoal-2)", border: "1px solid var(--line)", borderRadius: 4, color: "var(--ink)" }} />
-                  <Bar dataKey="total" fill="var(--mustard)" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
             </div>
 
             <div className="section-head"><h2>Custo e lucro por item do cardápio</h2><div className="rule" /></div>

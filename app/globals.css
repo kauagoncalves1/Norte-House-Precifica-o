@@ -60,3 +60,21 @@ select{
 .stat-value{font-family:'DM Mono',monospace; font-size:22px; color:var(--mustard);}
 .footer-note{margin-top:24px; font-size:13px; color:var(--ink-dim); line-height:1.7;}
 .footer-note b{color:var(--mustard);}
+
+/* remove as setinhas dos campos numéricos */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button{
+  -webkit-appearance:none; margin:0;
+}
+input[type=number]{ -moz-appearance:textfield; }
+
+/* botão redondo de remover, usado nos cards */
+.remove-btn{
+  appearance:none; -webkit-appearance:none;
+  position:absolute; top:8px; right:8px;
+  width:22px; height:22px; border-radius:50%;
+  background:rgba(0,0,0,0.55); border:1px solid var(--line);
+  color:var(--ink); cursor:pointer; font-size:13px; line-height:1;
+  display:flex; align-items:center; justify-content:center; padding:0;
+}
+.remove-btn:hover{ background:var(--burnt); border-color:var(--burnt); }
