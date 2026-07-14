@@ -1,78 +1,38 @@
-# Norte House Burger — Painel de gestão
+# Norte House Burger — Sistema de Gestão
 
-Sistema interno para precificar itens, gerenciar o cardápio (com fotos), registrar vendas e usar um assistente de IA — construído em Next.js + Supabase.
+Sistema interno desenvolvido para uma hamburgueria local, a Norte House Burger. A ideia começou simples: uma calculadora pra ajudar o dono a precificar os itens do cardápio. Com o tempo, conversando sobre o dia a dia da loja, o projeto foi crescendo até virar um painel de gestão completo.
 
-## 1. Rodar localmente
+## O que o sistema faz
 
-```bash
-npm install
-cp .env.local.example .env.local
-# preencha .env.local com suas chaves reais (veja passo 2 e 3)
-npm run dev
-```
+O painel é dividido em cinco áreas principais:
 
-Abra http://localhost:3000
+**Precificação**
+O dono cadastra os ingredientes de um item (nome, quantidade, unidade e custo), define a margem de lucro desejada e o custo fixo por unidade (embalagem, gás, etc). O sistema calcula o custo total do item e sugere um preço de venda.
 
-## 2. Configurar o Supabase (banco de dados + fotos)
+**Simulador de pedido**
+Uma tela pra montar pedidos combinando itens do cardápio, adicionais (como bacon extra ou molhos) e bebidas/acompanhamentos, mostrando o valor total. Serve tanto pra testar combinações antes de colocar algo novo no cardápio quanto pra montar um pedido rapidamente no dia a dia.
 
-1. Crie um projeto grátis em https://supabase.com
-2. Vá em **SQL Editor** → cole o conteúdo de `supabase-schema.sql` → Run
-3. Vá em **Storage** → New bucket → nome `menu-photos` → marque como **Public**
-4. Vá em **Project Settings → API** → copie:
-   - `Project URL` → cole em `NEXT_PUBLIC_SUPABASE_URL`
-   - `anon public key` → cole em `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+**Cardápio**
+Cadastro dos itens que a loja vende, com foto, nome, preço, descrição, lista de ingredientes e custo. As fotos ficam salvas no Supabase Storage, então o dono consegue subir imagens direto do celular.
 
-## 3. Configurar a chave da Groq (assistente de IA — gratuito)
+**Painel**
+Dashboard com o desempenho do negócio: faturamento, ticket médio, margem de lucro, gráfico de faturamento dos últimos sete dias, comparação entre venda de hambúrguer e de bebida/acompanhamento, ranking dos itens mais vendidos e uma tabela detalhada de custo e lucro por item. Também é onde as vendas são registradas manualmente conforme acontecem no balcão.
 
-1. Acesse https://console.groq.com → API Keys → Create API Key
-2. Cole em `GROQ_API_KEY` no `.env.local`
+**Assistente de IA**
+Um chat simples que ajuda o dono a tirar dúvidas sobre precificação, sugerir nomes ou descrições pra itens novos do cardápio. Ele tem acesso ao contexto do cardápio e das vendas registradas, então as respostas levam em conta a situação real da loja.
 
-A Groq tem uma camada gratuita generosa (limite de pedidos por minuto, mas cobre bem o uso de uma loja pequena). A chave nunca fica exposta no navegador — só é usada dentro de `app/api/chat/route.ts`, que roda no servidor.
+## Tecnologias usadas
 
-## 4. Subir pro GitHub
+- Next.js (App Router) para o front-end e as rotas de back-end
+- Supabase para banco de dados e armazenamento das fotos
+- Groq para o modelo de IA usado no assistente
+- Recharts para os gráficos do painel
+- Vercel para hospedagem
 
-```bash
-git init
-git add .
-git commit -m "primeira versão do painel Norte House Burger"
-git branch -M main
-git remote add origin https://github.com/SEU_USUARIO/norte-house-burger.git
-git push -u origin main
-```
+## Como o projeto foi construído
 
-## 5. Deploy na Vercel
+O sistema não nasceu de uma lista de requisitos fechada. Cada funcionalidade foi adicionada a partir de uma necessidade que apareceu durante o uso real: primeiro foi só uma calculadora, depois surgiu a necessidade de guardar o cardápio, depois de acompanhar vendas, depois de visualizar esses dados de forma mais clara. O painel de custo e lucro por item, por exemplo, só existe porque, ao usar o sistema, ficou claro que faltava saber exatamente quanto cada hambúrguer estava dando de lucro, não só uma estimativa genérica.
 
-1. Acesse https://vercel.com → **Add New Project** → importe o repositório do GitHub
-2. Em **Environment Variables**, adicione as 3 chaves do `.env.local`:
-   - `GROQ_API_KEY`
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-3. Clique em **Deploy**
+## Rodando o projeto localmente
 
-A cada `git push`, a Vercel atualiza o site automaticamente.
-
-## 6. Domínio próprio
-
-1. Registre o domínio (Registro.br para `.com.br`, ou Namecheap/Cloudflare para `.com`)
-2. Na Vercel: **Project → Settings → Domains** → adicione o domínio
-3. No painel do registrador, aponte o DNS conforme as instruções que a Vercel mostrar
-4. O certificado SSL é configurado automaticamente
-
-## Estrutura do projeto
-
-```
-app/
-  page.tsx          → tela principal (cardápio, painel, assistente)
-  layout.tsx         → layout raiz
-  globals.css         → identidade visual (Norte House Burger)
-  api/chat/route.ts  → rota segura que fala com a API da Anthropic
-lib/
-  supabase.ts         → cliente do Supabase
-supabase-schema.sql   → schema do banco (rode no Supabase antes de tudo)
-```
-
-## Próximos passos sugeridos
-
-- Adicionar autenticação (login do dono) antes de deixar isso público, já que hoje as políticas do Supabase são abertas para simplificar o setup inicial
-- Levar as abas de "Precificação de item" e "Simulador de pedido" (que existiam na versão de teste) para cá, ligando o custo real dos ingredientes a cada item do cardápio
-- Adicionar upload de logo da loja, salvo em `shop_settings`
+As instruções completas de configuração (variáveis de ambiente, banco de dados, deploy) estão no arquivo `SETUP.md`.
