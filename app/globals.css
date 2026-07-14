@@ -321,3 +321,9 @@ input[type=number]{ -moz-appearance:textfield; }
   .stat-grid{ grid-template-columns:repeat(2, 1fr); }
   .rank-name{ width:110px; }
 }
+.topbar .mark-row{ display:flex; align-items:center; gap:10px; }
+.topbar .logo-img{
+  width:34px; height:34px; min-width:34px; min-height:34px;
+  border-radius:50%; object-fit:cover; object-position:center;
+  border:1px solid var(--border-strong); display:block;
+}

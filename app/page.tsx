@@ -392,9 +392,12 @@ export default function Home() {
   return (
     <div>
       <div className="topbar">
-        <span className="mark">{shopName}</span>
+        <div className="mark-row">
+          <img src="/logo.jpg" alt={shopName} className="logo-img" />
+          <span className="mark">{shopName}</span>
+        </div>
         <span>{new Date().toLocaleDateString("pt-BR")}</span>
-      </div>
+       </div>
 
       <div className="wrap">
         <div className="hero">
